@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>music2piano — Symbolic Audio-to-Grand-Piano Studio</title>
+    <meta
+      name="description"
+      content="Convert any song into an expressive 2-hand solo piano arrangement rendered through real multi-velocity Yamaha C5 Salamander Grand Piano recordings. 100% client-side, zero AI audio slop."
+    />
+    <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div class="studio-shell">
+      <!-- Top Studio Header -->
+      <header class="topbar">
+        <div class="brand">
+          <img src="./assets/icon.svg" alt="" class="brand-icon" width="32" height="32" />
+          <div class="brand-text">
+            <span class="brand-title">music2piano</span>
+            <span class="brand-subtitle">Symbolic Arrangement &bull; Yamaha C5 Grand</span>
+          </div>
+        </div>
+
+        <div class="telemetry-strip">
+          <div class="sample-pill" id="sampleStatusPill" title="Multi-velocity acoustic piano sample status">
+            <span class="status-dot" id="sampleStatusDot"></span>
+            <span id="sampleStatusText">Acoustic Engine Standby</span>
+          </div>
+
+          <div class="song-metrics" id="songMetrics" hidden>
+            <span class="metric-chip"><strong id="metricBpm">--</strong> BPM</span>
+            <span class="metric-chip" id="metricKey">--</span>
+            <span class="metric-chip"><strong id="metricNotes">0</strong> notes</span>
+            <span class="metric-chip"><strong id="metricPedals">0</strong> pedals</span>
+          </div>
+        </div>
+
+        <div class="export-actions">
+          <button class="btn btn-secondary" id="exportMidiBtn" disabled title="Export 2-Hand Standard MIDI File with CC64 Sustain Pedal">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Export .MID
+          </button>
+          <button class="btn btn-primary" id="exportWavBtn" disabled title="Render 24-bit 48kHz stereo WAV using 4-layer Salamander Grand Piano">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3v12" />
+              <polyline points="7 10 12 15 17 10" />
+              <rect x="4" y="18" width="16" height="3" rx="1" />
+            </svg>
+            <span id="exportWavLabel">Render Studio .WAV</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Studio Grid -->
+      <main class="workspace">
+        <!-- Left Stage: Dropzone + Waterfall Roll + 88-Key Grand + Transport -->
+        <section class="stage-column">
+          <!-- Source Bar / Dropzone -->
+          <div class="source-bar" id="dropZone">
+            <input
+              type="file"
+              id="fileInput"
+              accept="audio/*,.mp3,.wav,.flac,.m4a,.ogg,.aac,.mid,.midi"
+              hidden
+            />
+            <div class="source-info">
+              <div class="source-badge" id="sourceBadge">INPUT</div>
+              <div class="source-copy">
+                <div class="source-title" id="sourceTitle">
+                  Drop any song (.mp3, .wav, .flac, .m4a) or .mid file here
+                </div>
+                <div class="source-hint" id="sourceHint">
+                  Strips drums via HPSS &rarr; transcribes harmony &amp; melody &rarr; arranges playable 2-hand grand piano
+                </div>
+              </div>
+            </div>
+
+            <div class="source-buttons">
+              <button class="btn btn-ghost" id="demoSongBtn" type="button">
+                Try Full-Band Demo
+              </button>
+              <button class="btn btn-outline" id="chooseFileBtn" type="button">
+                Choose Song&hellip;
+              </button>
+            </div>
+
+            <!-- Conversion Progress Overlay Bar -->
+            <div class="progress-drawer" id="progressDrawer" hidden>
+              <div class="progress-meta">
+                <span id="progressStageText">Preparing audio&hellip;</span>
+                <span id="progressPercentText" class="mono">0%</span>
+              </div>
+              <div class="progress-track">
+                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Timeline Scrubber -->
+          <div class="timeline-wrap">
+            <canvas id="timelineCanvas" aria-label="Song timeline overview"></canvas>
+          </div>
+
+          <!-- Waterfall Piano Roll + 88-Key Grand Piano -->
+          <div class="piano-stage">
+            <div class="stage-legend">
+              <span class="legend-item"><i class="swatch swatch-melody"></i>Lead Melody</span>
+              <span class="legend-item"><i class="swatch swatch-rh"></i>Right Hand</span>
+              <span class="legend-item"><i class="swatch swatch-lh"></i>Left Hand Bass</span>
+              <span class="legend-item"><i class="swatch swatch-pedal"></i>Damper Pedal (CC64)</span>
+            </div>
+            <canvas id="rollCanvas" aria-label="Falling note piano roll and interactive 88-key grand piano"></canvas>
+          </div>
+
+          <!-- Transport & Synchronized A/B Monitor Deck -->
+          <div class="transport-bar">
+            <div class="transport-left">
+              <button class="icon-btn" id="restartBtn" title="Return to start" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+                </svg>
+              </button>
+              <button class="play-btn" id="playPauseBtn" title="Play / Pause (Space)" disabled>
+                <svg id="playIcon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                <svg id="pauseIcon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display: none">
+                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                </svg>
+              </button>
+              <div class="timecode mono">
+                <span id="currentTimeText">00:00.0</span>
+                <span class="time-sep">/</span>
+                <span id="totalTimeText">00:00.0</span>
+              </div>
+            </div>
+
+            <div class="monitor-switch" role="group" aria-label="Audio monitor mode">
+              <span class="monitor-label">MONITOR</span>
+              <div class="segmented" id="monitorSegmented">
+                <button type="button" class="seg-btn active" data-monitor="piano">Piano Only</button>
+                <button type="button" class="seg-btn" data-monitor="blend" id="monitorBlendBtn">Sync Blend</button>
+                <button type="button" class="seg-btn" data-monitor="original" id="monitorOrigBtn">Original</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right Rack: Acoustic Character + Live 2-Hand Arrangement Controls -->
+        <aside class="rack-column">
+          <!-- Acoustic Piano Character -->
+          <section class="rack-card">
+            <div class="rack-header">
+              <h2>Acoustic Instrument</h2>
+              <span class="rack-tag">REAL SAMPLES</span>
+            </div>
+
+            <div class="character-grid" id="characterGrid">
+              <button type="button" class="char-card active" data-character="concert">
+                <span class="char-name">Concert Grand</span>
+                <span class="char-desc">Yamaha C5 &bull; 4 dynamic velocity layers &amp; concert hall</span>
+              </button>
+              <button type="button" class="char-card" data-character="felt">
+                <span class="char-name">Intimate Felt</span>
+                <span class="char-desc">Soft felt hammers, warm close-mic damper mechanics</span>
+              </button>
+              <button type="button" class="char-card" data-character="studio">
+                <span class="char-name">Studio Pop Grand</span>
+                <span class="char-desc">Crisp transient articulation &amp; tight studio room</span>
+              </button>
+            </div>
+
+            <div class="control-row">
+              <div class="control-label">
+                <label for="reverbSlider">Concert Hall Ambience</label>
+                <span class="mono" id="reverbVal">28%</span>
+              </div>
+              <input type="range" id="reverbSlider" min="0" max="75" value="28" />
+            </div>
+          </section>
+
+          <!-- 2-Hand Arrangement Engine -->
+          <section class="rack-card">
+            <div class="rack-header">
+              <h2>Piano Arrangement</h2>
+              <span class="rack-tag">LIVE REALTIME</span>
+            </div>
+
+            <div class="control-group">
+              <span class="sub-label">Arrangement Style</span>
+              <div class="segmented full" id="styleSegmented">
+                <button type="button" class="seg-btn active" data-style="cover">2-Hand Cover</button>
+                <button type="button" class="seg-btn" data-style="ballad">Ballad</button>
+                <button type="button" class="seg-btn" data-style="faithful">Faithful</button>
+              </div>
+            </div>
+
+            <div class="control-row">
+              <div class="control-label">
+                <label for="melodySlider">Lead Melody Separation</label>
+                <span class="mono" id="melodyVal">65%</span>
+              </div>
+              <input type="range" id="melodySlider" min="0" max="100" value="65" />
+            </div>
+
+            <div class="control-row">
+              <div class="control-label">
+                <label for="densitySlider">Accompaniment Density</label>
+                <span class="mono" id="densityVal">65%</span>
+              </div>
+              <input type="range" id="densitySlider" min="10" max="100" value="65" />
+            </div>
+
+            <div class="control-row">
+              <div class="control-label">
+                <label for="quantizeSlider">Beat Grid Tightening</label>
+                <span class="mono" id="quantizeVal">38%</span>
+              </div>
+              <input type="range" id="quantizeSlider" min="0" max="85" value="38" />
+            </div>
+
+            <div class="control-group">
+              <span class="sub-label">Damper Sustain Pedal (CC64)</span>
+              <div class="segmented full" id="pedalSegmented">
+                <button type="button" class="seg-btn active" data-pedal="harmonic">Chord-Aware</button>
+                <button type="button" class="seg-btn" data-pedal="lush">Lush</button>
+                <button type="button" class="seg-btn" data-pedal="dry">Dry</button>
+              </div>
+            </div>
+
+            <div class="inline-controls">
+              <div class="transpose-box">
+                <span class="sub-label">Transpose</span>
+                <div class="stepper">
+                  <button type="button" id="transDownBtn" aria-label="Transpose down semitone">&minus;</button>
+                  <span class="mono" id="transposeVal">0 st</span>
+                  <button type="button" id="transUpBtn" aria-label="Transpose up semitone">+</button>
+                </div>
+              </div>
+
+              <label class="toggle-row" for="octaveCheck">
+                <input type="checkbox" id="octaveCheck" />
+                <span>Octave Lead Doubling</span>
+              </label>
+            </div>
+          </section>
+
+          <!-- Source Extraction Tuning -->
+          <section class="rack-card">
+            <div class="rack-header">
+              <h2>Source Extraction</h2>
+              <span class="rack-tag">HPSS + NEURAL</span>
+            </div>
+
+            <div class="control-row">
+              <div class="control-label">
+                <label for="sensitivitySlider">Note Capture Sensitivity</label>
+                <span class="mono" id="sensitivityVal">55%</span>
+              </div>
+              <input type="range" id="sensitivitySlider" min="15" max="90" value="55" />
+            </div>
+
+            <div class="control-row">
+              <div class="control-label">
+                <label for="drumSlider">Drum &amp; Transient Rejection</label>
+                <span class="mono" id="drumVal">65%</span>
+              </div>
+              <input type="range" id="drumSlider" min="0" max="100" value="65" />
+            </div>
+
+            <button type="button" class="btn btn-outline full-btn" id="reanalyzeBtn" hidden>
+              Re-Run Drum Separation with New Level
+            </button>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
